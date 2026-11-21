@@ -30,7 +30,7 @@ with st.sidebar:
     st.write("2. Upload your Template File.")
     st.write("3. Click Generate to build tree & split BOM files in ZIP.")
     st.markdown("---")
-    st.caption("v2.5.0 | Integrated Engine")
+    st.caption("v2.6.0 | Integrated Engine")
 
 st.title("📊 Indented BOM Splitter & Formatter")
 st.write("Upload your BOM and Template files below to process and download the split Excel files along with the formatted BoM Tree inside a hierarchical ZIP package.")
@@ -252,6 +252,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         ws["D5"] = "00"
                         ws["D6"] = "APP01"
                         ws["D7"] = ""
+                        ws["S7"] = "1"
 
                         ws["H2"] = "Std. Due (Days)"
                         ws["H3"] = "BU"
@@ -278,7 +279,6 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         ws.cell(row=row_num, column=2, value=seq_val).alignment = Alignment(horizontal="center")
                         ws.cell(row=row_num, column=3, value="")
 
-                        # Store Parent Qty as numeric float so multiplication formulas work
                         qty_cell_9 = ws.cell(row=row_num, column=4)
                         if pd.notna(parent_info["Quantity"]):
                             try:
@@ -318,7 +318,6 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                             ws.cell(row=row_num, column=2, value=c_seq).alignment = Alignment(horizontal="center")
                             ws.cell(row=row_num, column=3, value="")
 
-                            # Store Child Qty as numeric float
                             qty_cell_child = ws.cell(row=row_num, column=4)
                             if pd.notna(child["Quantity"]):
                                 try:
@@ -364,7 +363,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                             delete_count = 1399 - row_num + 1
                             ws.delete_rows(idx=row_num, amount=delete_count)
 
-                        # --- REMOVE GHOST BLACK LINE FORMATTING AT ROW 1400 ---
+                        # --- REMOVE GHOST BLACK LINE FORMATTING AT ROW 1400+ ---
                         for r_ghost in range(1400, 1410):
                             if r_ghost in ws.row_dimensions:
                                 del ws.row_dimensions[r_ghost]
@@ -374,11 +373,11 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                                 cell_ghost.border = no_border
 
                         # --- RESTORE ALL DATA ROW FORMULAS + FORMATS & UPDATE BOTTOM FORMULAS ---
-                        last_data_row = row_num - 1  # Example: 35 if data ends at 35
-                        formula_row = row_num + 1     # Total row immediately below Black Line
-                        weeks_row = row_num + 2       # Leadtime Weeks row below Total row
+                        last_data_row = row_num - 1  # Example: 86
+                        formula_row = row_num + 1     # Total row immediately below Black Line (e.g., 88)
+                        weeks_row = row_num + 2       # Leadtime Weeks row below Total row (e.g., 89)
 
-                        # 1. Restore Formulas + Number Formats + Styles for every BOM row (M to BE)
+                        # 1. Restore Formulas + Number Formats + Styles for every BOM row (Cols M to BE)
                         for r in range(9, last_data_row + 1):
                             for col_idx, tmpl in row9_templates.items():
                                 updated_f = re.sub(
