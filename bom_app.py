@@ -30,7 +30,7 @@ with st.sidebar:
     st.write("2. Upload your Template File.")
     st.write("3. Click Generate to build tree & split BOM files in ZIP.")
     st.markdown("---")
-    st.caption("v2.4.0 | Integrated Engine")
+    st.caption("v2.5.0 | Integrated Engine")
 
 st.title("📊 Indented BOM Splitter & Formatter")
 st.write("Upload your BOM and Template files below to process and download the split Excel files along with the formatted BoM Tree inside a hierarchical ZIP package.")
@@ -233,12 +233,17 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         else:
                             ws = wb.active
 
-                        # --- SAVE TEMPLATE FORMULAS FROM ROW 9 (Cols M to BE) BEFORE DELETING ---
-                        row9_formulas = {}
+                        # --- SAVE TEMPLATE FORMULAS & STYLES FROM ROW 9 (Cols M to BE) BEFORE DELETING ---
+                        row9_templates = {}
                         for col_idx in range(12, ws.max_column + 1):
-                            val = ws.cell(row=9, column=col_idx).value
-                            if isinstance(val, str) and val.startswith("="):
-                                row9_formulas[col_idx] = val
+                            c9 = ws.cell(row=9, column=col_idx)
+                            if isinstance(c9.value, str) and c9.value.startswith("="):
+                                row9_templates[col_idx] = {
+                                    "formula": c9.value,
+                                    "number_format": c9.number_format,
+                                    "font": c9.font.copy() if c9.font else Font(name="Verdana", size=10),
+                                    "alignment": c9.alignment.copy() if c9.alignment else Alignment(horizontal="right"),
+                                }
 
                         # Header fields
                         ws["D2"] = str(parent_part)
@@ -273,6 +278,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         ws.cell(row=row_num, column=2, value=seq_val).alignment = Alignment(horizontal="center")
                         ws.cell(row=row_num, column=3, value="")
 
+                        # Store Parent Qty as numeric float so multiplication formulas work
                         qty_cell_9 = ws.cell(row=row_num, column=4)
                         if pd.notna(parent_info["Quantity"]):
                             try:
@@ -312,6 +318,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                             ws.cell(row=row_num, column=2, value=c_seq).alignment = Alignment(horizontal="center")
                             ws.cell(row=row_num, column=3, value="")
 
+                            # Store Child Qty as numeric float
                             qty_cell_child = ws.cell(row=row_num, column=4)
                             if pd.notna(child["Quantity"]):
                                 try:
@@ -366,28 +373,33 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                                 cell_ghost.fill = no_fill
                                 cell_ghost.border = no_border
 
-                        # --- RESTORE ALL DATA ROW FORMULAS (M to BE) & UPDATE BOTTOM FORMULAS ---
+                        # --- RESTORE ALL DATA ROW FORMULAS + FORMATS & UPDATE BOTTOM FORMULAS ---
                         last_data_row = row_num - 1  # Example: 35 if data ends at 35
                         formula_row = row_num + 1     # Total row immediately below Black Line
                         weeks_row = row_num + 2       # Leadtime Weeks row below Total row
 
-                        # 1. Keep all S to BE (and M to R) formulas intact for every BOM row
+                        # 1. Restore Formulas + Number Formats + Styles for every BOM row (M to BE)
                         for r in range(9, last_data_row + 1):
-                            for col_idx, base_f in row9_formulas.items():
+                            for col_idx, tmpl in row9_templates.items():
                                 updated_f = re.sub(
                                     r'(\$?[A-Z]{1,3})9\b',
                                     rf'\g<1>{r}',
-                                    base_f
+                                    tmpl["formula"]
                                 )
-                                ws.cell(row=r, column=col_idx).value = updated_f
+                                target_cell = ws.cell(row=r, column=col_idx)
+                                target_cell.value = updated_f
+                                target_cell.number_format = tmpl["number_format"]
+                                target_cell.font = tmpl["font"]
+                                target_cell.alignment = tmpl["alignment"]
 
-                        # 2. Keep Black Line keela irukura Total & Leadtime formulas intact
+                        # 2. Update Total Row Formulas (Leadtime Days & Cost SUMs)
                         ws.cell(row=formula_row, column=17).value = f"=MAX(Q9:Q{last_data_row})"
                         sum_cols = ["S", "T", "W", "X", "AA", "AB", "AE", "AF", "AI", "AJ", 
                                     "AM", "AN", "AQ", "AR", "AU", "AV", "AY", "AZ", "BC", "BD"]
                         for col_let in sum_cols:
                             ws[f"{col_let}{formula_row}"].value = f"=SUM({col_let}9:{col_let}{last_data_row})"
 
+                        # 3. Update Leadtime Weeks Formula
                         ws.cell(row=weeks_row, column=17).value = f"=Q{formula_row}/7"
 
                         excel_data = io.BytesIO()
