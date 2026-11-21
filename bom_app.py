@@ -30,7 +30,7 @@ with st.sidebar:
     st.write("2. Upload your Template File.")
     st.write("3. Click Generate to build tree & split BOM files in ZIP.")
     st.markdown("---")
-    st.caption("v2.2.0 | Integrated Engine")
+    st.caption("v2.3.0 | Integrated Engine")
 
 st.title("📊 Indented BOM Splitter & Formatter")
 st.write("Upload your BOM and Template files below to process and download the split Excel files along with the formatted BoM Tree inside a hierarchical ZIP package.")
@@ -50,6 +50,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
     if uploaded_bom is not None and uploaded_template is not None:
         try:
             with st.spinner("Processing files and building tree directory... Please wait..."):
+                # --- Get BOM base name and remove extension ---
                 bom_base_name = os.path.splitext(uploaded_bom.name)[0]
                 bom_folder_name = bom_base_name.strip()
 
@@ -87,7 +88,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                 current_parent_key_at_lvl = {0: None}
                 current_path_at_lvl = {0: ""} 
 
-                # 2. Hierarchy Tracking Logic
+                # 2. Hierarchy Tracking Logic with Dynamic Directory Path Traversal
                 for idx, row in df_bom.iterrows():
                     lvl = row["Level"]
                     part_no = row["Part Number"]
@@ -195,6 +196,9 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                     # =========================================================
                     # 4. INDIVIDUAL SPLIT BOM GENERATION LOGIC
                     # =========================================================
+                    no_fill = PatternFill(fill_type=None)
+                    no_border = Border()
+
                     for unique_key, data in assemblies.items():
                         child_rows = data["children"]
 
@@ -229,9 +233,9 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         else:
                             ws = wb.active
 
-                        # Capture Row 9 base formulas BEFORE any deletion
+                        # Capture Row 9 base formulas BEFORE deleting rows
                         row9_formulas = {}
-                        for col_idx in range(12, ws.max_column + 1):  # Column L (12) to BE (57)
+                        for col_idx in range(12, ws.max_column + 1):  # Columns L to BE
                             val = ws.cell(row=9, column=col_idx).value
                             if isinstance(val, str) and val.startswith("="):
                                 row9_formulas[col_idx] = val
@@ -269,7 +273,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         ws.cell(row=row_num, column=2, value=seq_val).alignment = Alignment(horizontal="center")
                         ws.cell(row=row_num, column=3, value="")
 
-                        # Store Qty as NUMERIC (float) so formulas don't break
+                        # Store Parent Qty as numeric float so formulas calculate properly
                         qty_cell_9 = ws.cell(row=row_num, column=4)
                         if pd.notna(parent_info["Quantity"]):
                             try:
@@ -309,7 +313,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                             ws.cell(row=row_num, column=2, value=c_seq).alignment = Alignment(horizontal="center")
                             ws.cell(row=row_num, column=3, value="")
 
-                            # Store Child Qty as NUMERIC (float)
+                            # Store Child Qty as numeric float
                             qty_cell_child = ws.cell(row=row_num, column=4)
                             if pd.notna(child["Quantity"]):
                                 try:
@@ -317,99 +321,3 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                                 except ValueError:
                                     qty_cell_child.value = 0.0
                             else:
-                                qty_cell_child.value = 0.0
-                            qty_cell_child.number_format = "0.000"
-                            qty_cell_child.alignment = Alignment(horizontal="right")
-
-                            child_part = str(child["Part Number"])
-                            ws.cell(row=row_num, column=5, value=child_part)
-
-                            c_rev = (
-                                str(child["Revision"]).strip()
-                                if pd.notna(child["Revision"])
-                                else ""
-                            )
-                            if c_rev.lower() == "nan":
-                                c_rev = ""
-                            elif len(c_rev) == 1 and c_rev.isdigit():
-                                c_rev = c_rev.zfill(2)
-
-                            ws.cell(row=row_num, column=6, value=str(c_rev)).alignment = Alignment(horizontal="center")
-                            ws.cell(row=row_num, column=7, value=child["Description"])
-                            ws.cell(row=row_num, column=8, value="")
-                            ws.cell(row=row_num, column=9, value=str(child["UOM"])).alignment = Alignment(horizontal="center")
-
-                            child_part_clean = child_part.strip()
-                            if child_part_clean in mfg_lookup:
-                                ws.cell(row=row_num, column=10, value=mfg_lookup[child_part_clean]["mfg_name"])
-                                ws.cell(row=row_num, column=11, value=mfg_lookup[child_part_clean]["mfg_pn"])
-
-                            for col in range(1, 12):
-                                cell = ws.cell(row=row_num, column=col)
-                                cell.font = Font(name="Verdana", size=10)
-
-                            row_num += 1
-
-                        # --- DELETE UNUSED TEMPLATE ROWS (From row_num up to row 1399) ---
-                        if row_num <= 1399:
-                            delete_count = 1399 - row_num + 1
-                            ws.delete_rows(idx=row_num, amount=delete_count)
-
-                        # --- RESTORE & UPDATE ALL FORMULAS CLEANLY ---
-                        last_data_row = row_num - 1  # Data ends here (e.g., Row 35)
-                        # After deleting up to 1399:
-                        # Row 1400 (Black separator line) becomes -> row_num
-                        # Row 1401 (Totals / Leadtime Days) becomes -> row_num + 1
-                        # Row 1402 (Leadtime Weeks) becomes -> row_num + 2
-                        total_row = row_num + 1
-                        weeks_row = row_num + 2
-
-                        # 1. Restore Row-by-Row Formulas (Row 9 to last_data_row, Columns M to BE)
-                        for r in range(9, last_data_row + 1):
-                            for col_idx, base_f in row9_formulas.items():
-                                # Replace row 9 references (e.g., B9, D9, N9, O9, S9, W9...) with current row 'r'
-                                # Keeps $V$7, $Z$7, $A:$AD untouched
-                                updated_f = re.sub(
-                                    r'(\$?[A-Z]{1,3})9\b',
-                                    rf'\g<1>{r}',
-                                    base_f
-                                )
-                                ws.cell(row=r, column=col_idx).value = updated_f
-
-                        # 2. Update Total Row Formulas (Row 1401 -> total_row)
-                        ws.cell(row=total_row, column=17).value = f"=MAX(Q9:Q{last_data_row})"  # Col Q: Leadtime Days
-                        sum_cols = ["S", "T", "W", "X", "AA", "AB", "AE", "AF", "AI", "AJ", 
-                                    "AM", "AN", "AQ", "AR", "AU", "AV", "AY", "AZ", "BC", "BD"]
-                        for col_let in sum_cols:
-                            ws[f"{col_let}{total_row}"].value = f"=SUM({col_let}9:{col_let}{last_data_row})"
-
-                        # 3. Update Leadtime Weeks Formula (Row 1402 -> weeks_row)
-                        ws.cell(row=weeks_row, column=17).value = f"=Q{total_row}/7"
-
-                        excel_data = io.BytesIO()
-                        wb.save(excel_data)
-                        excel_data.seek(0)
-
-                        output_filename = f"{parent_part}_REV_{parent_rev}_VSE_00_BOM.xlsx"
-                        
-                        if inherited_folder_path == "":
-                            full_zip_path = f"{bom_folder_name}/{output_filename}"
-                        else:
-                            full_zip_path = f"{bom_folder_name}/{inherited_folder_path}/{output_filename}"
-                            
-                        zip_file.writestr(full_zip_path, excel_data.read())
-
-                zip_buffer.seek(0)
-
-                st.success("🎉 Process Completed Successfully! All BOM files and highlighted BoM_Tree created.")
-                st.download_button(
-                    label="📥 Download Hierarchical Tree BOM Package (ZIP)",
-                    data=zip_buffer,
-                    file_name=f"{bom_folder_name}.zip",
-                    mime="application/zip",
-                    type="primary"
-                )
-        except Exception as e:
-            st.error(f"❌ Processing Error: {e}")
-    else:
-        st.warning("⚠️ Please upload BOTH the Indented BOM Excel and Template Excel files before proceeding!")
