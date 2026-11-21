@@ -321,3 +321,102 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                                 except ValueError:
                                     qty_cell_child.value = 0.0
                             else:
+                                qty_cell_child.value = 0.0
+                            qty_cell_child.number_format = "0.000"
+                            qty_cell_child.alignment = Alignment(horizontal="right")
+
+                            child_part = str(child["Part Number"])
+                            ws.cell(row=row_num, column=5, value=child_part)
+
+                            c_rev = (
+                                str(child["Revision"]).strip()
+                                if pd.notna(child["Revision"])
+                                else ""
+                            )
+                            if c_rev.lower() == "nan":
+                                c_rev = ""
+                            elif len(c_rev) == 1 and c_rev.isdigit():
+                                c_rev = c_rev.zfill(2)
+
+                            ws.cell(row=row_num, column=6, value=str(c_rev)).alignment = Alignment(horizontal="center")
+                            ws.cell(row=row_num, column=7, value=child["Description"])
+                            ws.cell(row=row_num, column=8, value="")
+                            ws.cell(row=row_num, column=9, value=str(child["UOM"])).alignment = Alignment(horizontal="center")
+
+                            child_part_clean = child_part.strip()
+                            if child_part_clean in mfg_lookup:
+                                ws.cell(row=row_num, column=10, value=mfg_lookup[child_part_clean]["mfg_name"])
+                                ws.cell(row=row_num, column=11, value=mfg_lookup[child_part_clean]["mfg_pn"])
+
+                            for col in range(1, 12):
+                                cell = ws.cell(row=row_num, column=col)
+                                cell.font = Font(name="Verdana", size=10)
+
+                            row_num += 1
+
+                        # --- DELETE UNUSED TEMPLATE ROWS (From row_num up to row 1399) ---
+                        if row_num <= 1399:
+                            delete_count = 1399 - row_num + 1
+                            ws.delete_rows(idx=row_num, amount=delete_count)
+
+                        # --- CLEAR GHOST ROW STYLE & BLACK COLOR ON ROW 1400+ ---
+                        for r_ghost in range(1400, 1410):
+                            if r_ghost in ws.row_dimensions:
+                                del ws.row_dimensions[r_ghost]
+                            for col_idx in range(1, ws.max_column + 1):
+                                cell_ghost = ws.cell(row=r_ghost, column=col_idx)
+                                cell_ghost.fill = no_fill
+                                cell_ghost.border = no_border
+
+                        # --- RESTORE & DYNAMICALLY UPDATE ALL FORMULAS ---
+                        last_data_row = row_num - 1  # Example: 35 if data ends at 35
+                        formula_row = row_num + 1     # Total row immediately below Black Line
+                        weeks_row = row_num + 2       # Leadtime Weeks row below Total row
+
+                        # 1. Restore Row-by-Row Formulas (Row 9 to last_data_row, Columns M to BE)
+                        for r in range(9, last_data_row + 1):
+                            for col_idx, base_f in row9_formulas.items():
+                                updated_f = re.sub(
+                                    r'(\$?[A-Z]{1,3})9\b',
+                                    rf'\g<1>{r}',
+                                    base_f
+                                )
+                                ws.cell(row=r, column=col_idx).value = updated_f
+
+                        # 2. Update Total Row Formulas (Leadtime Days & Cost SUMs)
+                        ws.cell(row=formula_row, column=17).value = f"=MAX(Q9:Q{last_data_row})"
+                        sum_cols = ["S", "T", "W", "X", "AA", "AB", "AE", "AF", "AI", "AJ", 
+                                    "AM", "AN", "AQ", "AR", "AU", "AV", "AY", "AZ", "BC", "BD"]
+                        for col_let in sum_cols:
+                            ws[f"{col_let}{formula_row}"].value = f"=SUM({col_let}9:{col_let}{last_data_row})"
+
+                        # 3. Update Leadtime Weeks Formula
+                        ws.cell(row=weeks_row, column=17).value = f"=Q{formula_row}/7"
+
+                        excel_data = io.BytesIO()
+                        wb.save(excel_data)
+                        excel_data.seek(0)
+
+                        output_filename = f"{parent_part}_REV_{parent_rev}_VSE_00_BOM.xlsx"
+                        
+                        if inherited_folder_path == "":
+                            full_zip_path = f"{bom_folder_name}/{output_filename}"
+                        else:
+                            full_zip_path = f"{bom_folder_name}/{inherited_folder_path}/{output_filename}"
+                            
+                        zip_file.writestr(full_zip_path, excel_data.read())
+
+                zip_buffer.seek(0)
+
+                st.success("🎉 Process Completed Successfully! All BOM files and highlighted BoM_Tree created.")
+                st.download_button(
+                    label="📥 Download Hierarchical Tree BOM Package (ZIP)",
+                    data=zip_buffer,
+                    file_name=f"{bom_folder_name}.zip",
+                    mime="application/zip",
+                    type="primary"
+                )
+        except Exception as e:
+            st.error(f"❌ Processing Error: {e}")
+    else:
+        st.warning("⚠️ Please upload BOTH the Indented BOM Excel and Template Excel files before proceeding!")
