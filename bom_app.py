@@ -30,7 +30,7 @@ with st.sidebar:
     st.write("2. Upload your Template File.")
     st.write("3. Click Generate to build tree & split BOM files in ZIP.")
     st.markdown("---")
-    st.caption("v2.3.0 | Integrated Engine")
+    st.caption("v2.1.0 | Integrated Engine")
 
 st.title("📊 Indented BOM Splitter & Formatter")
 st.write("Upload your BOM and Template files below to process and download the split Excel files along with the formatted BoM Tree inside a hierarchical ZIP package.")
@@ -52,7 +52,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
             with st.spinner("Processing files and building tree directory... Please wait..."):
                 # --- Get BOM base name and remove extension ---
                 bom_base_name = os.path.splitext(uploaded_bom.name)[0]
-                bom_folder_name = bom_base_name.strip()
+                bom_folder_name = bom_base_name.strip()  # Example: BOM_10033602-003_1
 
                 # 1. Read Excel files
                 df = pd.read_excel(uploaded_bom, sheet_name=None, dtype=str)
@@ -173,14 +173,19 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                     df_tree = pd.DataFrame(tree_data)
                     df_tree = df_tree[["Customer", "Top Level", "Level 2", "Level 3", "Level 4", "Level 5"]]
                     
+                    # Convert BoM_Tree data into Styled OpenPyXL Workbook
                     bom_tree_output = io.BytesIO()
                     with pd.ExcelWriter(bom_tree_output, engine='openpyxl') as writer:
                         df_tree.to_excel(writer, index=False)
                         
+                        workbook = writer.book
                         worksheet = writer.sheets['Sheet1']
+                        
+                        # Highlighting Color setup (Hex: FCE4D6)
                         orange_fill = PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid")
                         tree_prefixes = ("0042", "0040", "0043", "0243", "0015", "0300")
                         
+                        # Apply fill color on cells starting with specific prefixes
                         for row in worksheet.iter_rows(min_row=2, min_col=1, max_col=6):
                             for cell in row:
                                 if cell.value is not None:
@@ -191,6 +196,8 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                     bom_tree_output.seek(0)
                     bom_tree_filename = f"BoM_Tree_{bom_folder_name}.xlsx"
                     bom_tree_zip_path = f"{bom_folder_name}/{bom_tree_filename}"
+                    
+                    # Save BoM_Tree into Root ZIP Folder
                     zip_file.writestr(bom_tree_zip_path, bom_tree_output.getvalue())
 
                     # =========================================================
@@ -233,13 +240,6 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         else:
                             ws = wb.active
 
-                        # Capture Row 9 base formulas BEFORE deleting rows
-                        row9_formulas = {}
-                        for col_idx in range(12, ws.max_column + 1):  # Columns L to BE
-                            val = ws.cell(row=9, column=col_idx).value
-                            if isinstance(val, str) and val.startswith("="):
-                                row9_formulas[col_idx] = val
-
                         # Header fields
                         ws["D2"] = str(parent_part)
                         ws["D3"] = str(parent_rev)
@@ -273,16 +273,16 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                         ws.cell(row=row_num, column=2, value=seq_val).alignment = Alignment(horizontal="center")
                         ws.cell(row=row_num, column=3, value="")
 
-                        # Store Parent Qty as numeric float so formulas calculate properly
                         qty_cell_9 = ws.cell(row=row_num, column=4)
                         if pd.notna(parent_info["Quantity"]):
                             try:
-                                qty_cell_9.value = float(parent_info["Quantity"])
+                                qty_parent_raw = float(parent_info["Quantity"])
+                                qty_cell_9.value = f"{qty_parent_raw:.3f}"
                             except ValueError:
-                                qty_cell_9.value = 1.0
+                                qty_cell_9.value = str(parent_info["Quantity"])
                         else:
-                            qty_cell_9.value = 1.0
-                        qty_cell_9.number_format = "0.000"
+                            qty_cell_9.value = "1.000"
+                        qty_cell_9.number_format = "General"
                         qty_cell_9.alignment = Alignment(horizontal="right")
 
                         ws.cell(row=row_num, column=5, value=str(parent_part))
@@ -313,16 +313,16 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                             ws.cell(row=row_num, column=2, value=c_seq).alignment = Alignment(horizontal="center")
                             ws.cell(row=row_num, column=3, value="")
 
-                            # Store Child Qty as numeric float
                             qty_cell_child = ws.cell(row=row_num, column=4)
                             if pd.notna(child["Quantity"]):
                                 try:
-                                    qty_cell_child.value = float(child["Quantity"])
+                                    qty_raw = float(child["Quantity"])
+                                    qty_cell_child.value = f"{qty_raw:.3f}"
                                 except ValueError:
-                                    qty_cell_child.value = 0.0
+                                    qty_cell_child.value = str(child["Quantity"])
                             else:
-                                qty_cell_child.value = 0.0
-                            qty_cell_child.number_format = "0.000"
+                                qty_cell_child.value = "0.000"
+                            qty_cell_child.number_format = "General"
                             qty_cell_child.alignment = Alignment(horizontal="right")
 
                             child_part = str(child["Part Number"])
@@ -359,7 +359,7 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                             delete_count = 1399 - row_num + 1
                             ws.delete_rows(idx=row_num, amount=delete_count)
 
-                        # --- CLEAR GHOST ROW STYLE & BLACK COLOR ON ROW 1400+ ---
+                        # --- REMOVE GHOST BLACK LINE FORMATTING AT ROW 1400 ---
                         for r_ghost in range(1400, 1410):
                             if r_ghost in ws.row_dimensions:
                                 del ws.row_dimensions[r_ghost]
@@ -368,30 +368,20 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                                 cell_ghost.fill = no_fill
                                 cell_ghost.border = no_border
 
-                        # --- RESTORE & DYNAMICALLY UPDATE ALL FORMULAS ---
+                        # --- DYNAMICALLY UPDATE FORMULAS BASED ON LAST DATA ROW ---
                         last_data_row = row_num - 1  # Example: 35 if data ends at 35
-                        formula_row = row_num + 1     # Total row immediately below Black Line
-                        weeks_row = row_num + 2       # Leadtime Weeks row below Total row
+                        formula_row = row_num + 1     # Formula row immediately below Black Line
 
-                        # 1. Restore Row-by-Row Formulas (Row 9 to last_data_row, Columns M to BE)
-                        for r in range(9, last_data_row + 1):
-                            for col_idx, base_f in row9_formulas.items():
-                                updated_f = re.sub(
-                                    r'(\$?[A-Z]{1,3})9\b',
-                                    rf'\g<1>{r}',
-                                    base_f
+                        for col_idx in range(1, ws.max_column + 1):
+                            cell = ws.cell(row=formula_row, column=col_idx)
+                            if cell.value and str(cell.value).startswith("="):
+                                # Replaces :X1000, :AA1000, :AB1000 with :X35, :AA35, :AB35
+                                updated_formula = re.sub(
+                                    r'(:[A-Z]+)(?:1000|1399|10000)',
+                                    rf'\g<1>{last_data_row}',
+                                    str(cell.value)
                                 )
-                                ws.cell(row=r, column=col_idx).value = updated_f
-
-                        # 2. Update Total Row Formulas (Leadtime Days & Cost SUMs)
-                        ws.cell(row=formula_row, column=17).value = f"=MAX(Q9:Q{last_data_row})"
-                        sum_cols = ["S", "T", "W", "X", "AA", "AB", "AE", "AF", "AI", "AJ", 
-                                    "AM", "AN", "AQ", "AR", "AU", "AV", "AY", "AZ", "BC", "BD"]
-                        for col_let in sum_cols:
-                            ws[f"{col_let}{formula_row}"].value = f"=SUM({col_let}9:{col_let}{last_data_row})"
-
-                        # 3. Update Leadtime Weeks Formula
-                        ws.cell(row=weeks_row, column=17).value = f"=Q{formula_row}/7"
+                                cell.value = updated_formula
 
                         excel_data = io.BytesIO()
                         wb.save(excel_data)
