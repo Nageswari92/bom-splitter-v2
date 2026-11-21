@@ -30,7 +30,7 @@ with st.sidebar:
     st.write("2. Upload your Template File.")
     st.write("3. Click Generate to build tree & split BOM files in ZIP.")
     st.markdown("---")
-    st.caption("v2.7.0 | Integrated Engine")
+    st.caption("v2.8.0 | Integrated Engine")
 
 st.title("📊 Indented BOM Splitter & Formatter")
 st.write("Upload your BOM and Template files below to process and download the split Excel files along with the formatted BoM Tree inside a hierarchical ZIP package.")
@@ -373,10 +373,11 @@ if st.button("Generate BOM Files & Tree Package", type="primary"):
                                 cell_ghost.fill = no_fill
                                 cell_ghost.border = no_border
 
-                        # --- APPLY FULL BLACK LINE FROM COLUMN A (1) TO COLUMN BE (57) ---
+                        # --- APPLY FULL-WIDTH BLACK LINE TILL THE END OF THE SHEET ---
                         if row_num in ws.row_dimensions:
                             del ws.row_dimensions[row_num]
-                        for col_idx in range(1, 58):  # 1 = Col A, 57 = Col BE
+                        ws.row_dimensions[row_num].fill = black_fill
+                        for col_idx in range(1, 250):
                             ws.cell(row=row_num, column=col_idx).fill = black_fill
 
                         # --- RESTORE ALL DATA ROW FORMULAS + FORMATS & UPDATE BOTTOM FORMULAS ---
